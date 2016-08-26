@@ -24,6 +24,21 @@ function initializeVariables() {
 	
 }
 
+function getCurrentTime() {
+	$query = "select current_timestamp as curr_time";
+	$result = pg_query($query) or die('Query failed: ' . pg_last_error());
+	$result = pg_fetch_array($result, null, PGSQL_ASSOC);
+	return substr($result['curr_time'], 0, 23);
+}
+
+function getTimeDifference($oldTime) {
+	$currTime = getCurrentTime();
+	$to_time = strtotime($currTime);
+	$from_time = strtotime($oldTime);
+	return round(abs($to_time - $from_time) / 60,2). " minute";
+	
+}
+
 function getNumberOfLastTransactions() {
 	$query = "select count(*) from transactions a, users b where a.user = b.userid and b.username = '" . $GLOBALS['username'] . "' and a.time between b.last_login and current_timestamp";
 	$result = pg_query($query) or die('Query failed: ' . pg_last_error());
@@ -45,13 +60,18 @@ function getNumberOfBillsLate() {
 	return $result['count'];
 }
 
+function getActivities() {
+	$query = "select a.create_ts, b.first_name, a.memo from activities a, users b where a.user = b.userid order by a.create_ts desc fetch first 10 rows only";
+	$result = pg_query($query) or die('Query failed: ' . pg_last_error());
+	return $result;
+}
 
-/*
-$query = "select count(*) from bills where time_due < current_timestamp and paid = false";
-$result = pg_query($query) or die('Query failed: ' . pg_last_error());
-$result = pg_fetch_array($result, null, PGSQL_ASSOC);
-$num_of_bills_late = $result['count'];
-*/
+function getTransactions() {
+	$query = "select b.first_name, a.time, a.amount from transactions a, users b where a.user = b.userid order by time desc fetch first 10 rows only;";
+	$result = pg_query($query) or die('Query failed: ' . pg_last_error());
+	return $result;	
+}
+
 ?>
 
 
@@ -90,7 +110,6 @@ $num_of_bills_late = $result['count'];
 </head>
 
 <body>
-
     <div id="wrapper">
 
         <!-- Navigation -->
@@ -405,45 +424,49 @@ $num_of_bills_late = $result['count'];
                     <div class="col-lg-4">
                         <div class="panel panel-default">
                             <div class="panel-heading">
-                                <h3 class="panel-title"><i class="fa fa-clock-o fa-fw"></i> Tasks Panel</h3>
+                                <h3 class="panel-title"><i class="fa fa-clock-o fa-fw"></i> Activities Panel</h3>
                             </div>
                             <div class="panel-body">
                                 <div class="list-group">
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">just now</span>
-                                        <i class="fa fa-fw fa-calendar"></i> Calendar updated
-                                    </a>
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">4 minutes ago</span>
-                                        <i class="fa fa-fw fa-comment"></i> Commented on a post
-                                    </a>
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">23 minutes ago</span>
-                                        <i class="fa fa-fw fa-truck"></i> Order 392 shipped
-                                    </a>
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">46 minutes ago</span>
-                                        <i class="fa fa-fw fa-money"></i> Invoice 653 has been paid
-                                    </a>
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">1 hour ago</span>
-                                        <i class="fa fa-fw fa-user"></i> A new user has been added
-                                    </a>
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">2 hours ago</span>
-                                        <i class="fa fa-fw fa-check"></i> Completed task: "pick up dry cleaning"
-                                    </a>
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">yesterday</span>
-                                        <i class="fa fa-fw fa-globe"></i> Saved the world
-                                    </a>
-                                    <a href="#" class="list-group-item">
-                                        <span class="badge">two days ago</span>
-                                        <i class="fa fa-fw fa-check"></i> Completed task: "fix error on sales page"
-                                    </a>
+									<?php
+										$activities = getActivities();
+										while($activity = pg_fetch_array($activities, null, PGSQL_ASSOC)) {
+											$toTime = strtotime(getCurrentTime());
+											$fromTime = strtotime($activity['create_ts']);
+											$difference = round(abs($toTime - $fromTime) / 60,0);
+											$hourDifference = floor($difference / 60);
+											
+											if ($hourDifference > 0) {
+												if ($hourDifference == 1) {
+													$difference = $hourDifference . " hour ago";
+												} else {
+													$dayDifference = floor($hourDifference / 24);
+													if ($dayDifference > 0) {
+														if ($dayDifference == 1) {
+															$difference = $dayDifference . " day ago";
+														} else {
+															$difference = $dayDifference . " days ago";
+														}
+													} else {
+														$difference = $hourDifference . " hours ago";
+													}
+												}
+											} else {
+												if ($difference == 1) {
+													$difference = $difference . " minute ago";
+												} else {
+													$difference = $difference . " minutes ago";
+												}
+											}
+											echo '<a href="#" class="list-group-item">';
+											echo '<span class="badge">' . $difference . '</span>';
+											echo '<i class="fa fa-fw fa-globe"></i>' . $activity['memo'];
+											echo '</a>';
+										}
+									?>
                                 </div>
                                 <div class="text-right">
-                                    <a href="#">View All Activity <i class="fa fa-arrow-circle-right"></i></a>
+                                    <a href="#">View All Activities <i class="fa fa-arrow-circle-right"></i></a>
                                 </div>
                             </div>
                         </div>
@@ -458,62 +481,29 @@ $num_of_bills_late = $result['count'];
                                     <table class="table table-bordered table-hover table-striped">
                                         <thead>
                                             <tr>
-                                                <th>Order #</th>
-                                                <th>Order Date</th>
-                                                <th>Order Time</th>
+                                                <th>User</th>
+                                                <th>Date</th>
+                                                <th>Time</th>
                                                 <th>Amount (USD)</th>
                                             </tr>
                                         </thead>
-                                        <tbody>
-                                            <tr>
-                                                <td>3326</td>
-                                                <td>10/21/2013</td>
-                                                <td>3:29 PM</td>
-                                                <td>$321.33</td>
-                                            </tr>
-                                            <tr>
-                                                <td>3325</td>
-                                                <td>10/21/2013</td>
-                                                <td>3:20 PM</td>
-                                                <td>$234.34</td>
-                                            </tr>
-                                            <tr>
-                                                <td>3324</td>
-                                                <td>10/21/2013</td>
-                                                <td>3:03 PM</td>
-                                                <td>$724.17</td>
-                                            </tr>
-                                            <tr>
-                                                <td>3323</td>
-                                                <td>10/21/2013</td>
-                                                <td>3:00 PM</td>
-                                                <td>$23.71</td>
-                                            </tr>
-                                            <tr>
-                                                <td>3322</td>
-                                                <td>10/21/2013</td>
-                                                <td>2:49 PM</td>
-                                                <td>$8345.23</td>
-                                            </tr>
-                                            <tr>
-                                                <td>3321</td>
-                                                <td>10/21/2013</td>
-                                                <td>2:23 PM</td>
-                                                <td>$245.12</td>
-                                            </tr>
-                                            <tr>
-                                                <td>3320</td>
-                                                <td>10/21/2013</td>
-                                                <td>2:15 PM</td>
-                                                <td>$5663.54</td>
-                                            </tr>
-                                            <tr>
-                                                <td>3319</td>
-                                                <td>10/21/2013</td>
-                                                <td>2:13 PM</td>
-                                                <td>$943.45</td>
-                                            </tr>
-                                        </tbody>
+										<tbody>
+										<?php
+										$transactions = getTransactions();
+										while ($transaction = pg_fetch_array($transactions, null, PGSQL_ASSOC)) {
+											echo '<tr>';
+											$user = $transaction['first_name'];
+											$date = substr($transaction['time'], 0, 10);
+											$time = substr($transaction['time'], 11, 5);
+											$amount = $transaction['amount'];
+											echo '<td>' . $user . '</td>';
+											echo '<td>' . $date . '</td>';
+											echo '<td>' . $time . '</td>';
+											echo '<td>$' . $amount . '</td>';
+											echo '</tr>';
+										}
+										
+										?>
                                     </table>
                                 </div>
                                 <div class="text-right">
@@ -543,7 +533,7 @@ $num_of_bills_late = $result['count'];
     <!-- Morris Charts JavaScript -->
     <script src="js/plugins/morris/raphael.min.js"></script>
     <script src="js/plugins/morris/morris.min.js"></script>
-    <script src="js/plugins/morris/morris-data.js"></script>
+    <!-- <script src="js/plugins/morris/morris-data.js"></script> -->
 
 </body>
 
